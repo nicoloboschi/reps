@@ -72,6 +72,7 @@ event = json.dumps({"type": "assistant", "message": {"content": [{"type": "text"
 (jobs / "k" / "JOB.md").write_text("---\nagent: sh -c 'cat ev.json'\n---\n")
 reps("run", "k")
 log = reps("logs", "k").stdout
+assert '"job": "k",\n' in log, log  # other files keep their line breaks
 assert "cleaning up" in log and '> Bash {"command": "df -h"}' in log and "hook" not in log, log
 
 for i in range(205):  # old runs are pruned to the newest 200 (+ the new one)

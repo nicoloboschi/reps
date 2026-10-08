@@ -235,7 +235,7 @@ def logs(name):
         if (last / f).exists():
             print(f"==> {last / f}")
             for line in (last / f).read_text().splitlines():
-                print(readable(line) if f == "output.log" else line, end="")
+                print(readable(line) if f == "output.log" else line + "\n", end="")
 
 
 def readable(line):
