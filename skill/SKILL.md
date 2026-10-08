@@ -48,8 +48,8 @@ It runs with no terminal and no stdin, and the prompt is added as the last argum
 | Agent | `agent:` |
 |---|---|
 | Claude Code | `claude -p --permission-mode acceptEdits --allowedTools=Read,Edit,Write,Bash(git:*),Bash(npm test:*)` |
-| Codex | `codex exec --full-auto` |
-| Gemini CLI | `gemini --yolo -p` |
+| Codex | `codex exec -s workspace-write` (add `-m <model>` if the configured one fails) |
+| Gemini CLI | `gemini --yolo -p` (untested) |
 | opencode | `opencode run` |
 
 Use the agent the user asked for; default to the one you are. Flags that take a list must use `=` (`--allowedTools=a,b`), or they swallow the prompt.
