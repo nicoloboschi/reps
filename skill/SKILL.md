@@ -69,6 +69,10 @@ To change a schedule, edit `every:` and run `reps install` again. To remove a jo
 
 ## Notes
 
+- **Sandboxed agents** (e.g. Codex `workspace-write`): `~/.reps` is outside your workspace, and `reps run`
+  needs network and writes the repo's `.git`. If a write or `reps` command fails with "Operation not permitted",
+  re-run it with escalated permissions (ask for approval). If you can't, give the user the exact commands to run.
+
 - `meta.json` `sync` says what happened to the worktree: `created`, `rebased`, or why it was left alone
   (uncommitted changes, rebase conflict). Fix those in `~/.reps/worktrees/<job>` if a job is stuck.
 - A run is skipped if the previous one is still going. Missed runs while the Mac slept fire once on wake.
