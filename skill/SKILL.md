@@ -26,7 +26,7 @@ Write `~/.reps/jobs/<name>/JOB.md` (name: lowercase, dashes). Settings on top, i
 
 ```markdown
 ---
-repo: ~/dev/myrepo           # required: the repo to work on
+repo: ~/dev/myrepo           # optional: the repo to work on (see below)
 agent: claude -p --permission-mode acceptEdits --allowedTools=Read,Edit,Write,Bash(git:*)
 every: 6h                    # 30m, 6h, 1d — leave out for manual-only
 timeout: 45m                 # optional, default 1h
@@ -37,6 +37,9 @@ Say what "done" looks like, and whether to push or open a PR (reps never pushes 
 ```
 
 Helper files (scripts, checklists) can go next to `JOB.md`; the agent is told where the folder is.
+
+No `repo:` → no worktree: the agent runs in the job folder itself. Use that for jobs that aren't about one
+repo (disk cleanup, reports, checking a service). Don't create a dummy repo.
 
 Each run, the agent is told to read `JOB.md` and its previous `summary.md`, and to write a new summary.
 So the instructions do not need to repeat that — just describe the work.
@@ -60,7 +63,8 @@ Use the agent the user asked for; default to the one you are. Flags that take a 
 reps run <name>      # run once now, in the foreground
 reps logs <name>     # check meta.json exit_code, summary.md, output.log
 reps install         # schedule every job that has `every:` (also removes deleted jobs)
-reps list            # all jobs and their last result
+reps list            # all jobs: schedule, how many runs, ok/failed, last status
+reps runs <name>     # every run of a job: status, duration, new commits, worktree sync
 ```
 
 Always do one `reps run` and read `reps logs` before `reps install`, and show the user the result.

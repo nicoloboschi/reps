@@ -4,7 +4,7 @@
 A job is a folder ~/.reps/jobs/<name>/ with a JOB.md:
 
     ---
-    repo: ~/dev/myrepo
+    repo: ~/dev/myrepo    # optional; without it the agent runs in the job folder
     every: 6h
     agent: claude -p --permission-mode acceptEdits
     timeout: 45m          # optional, default 1h
@@ -12,7 +12,7 @@ A job is a folder ~/.reps/jobs/<name>/ with a JOB.md:
     ---
     What the agent should do, in plain markdown.
 
-Usage: reps run <job> | install | list | logs <job> | version | update
+Usage: reps run <job> | install | list | runs <job> | logs <job> | version | update
 """
 import fcntl, json, os, plistlib, re, shlex, signal, subprocess, sys, time
 from pathlib import Path
@@ -43,10 +43,10 @@ def load(name):
         if line and not line.startswith("#"):
             k, _, v = line.partition(":")
             job[k.strip()] = v.strip()
-    for k in ("repo", "agent"):
-        if not job.get(k):
-            sys.exit(f"{md}: '{k}' is required")
-    job["repo"] = Path(job["repo"]).expanduser()
+    if not job.get("agent"):
+        sys.exit(f"{md}: 'agent' is required")
+    if job.get("repo"):
+        job["repo"] = Path(job["repo"]).expanduser()
     return job
 
 
@@ -60,6 +60,8 @@ def git(cwd, *args):
 
 def prepare_worktree(job):
     """Create the job's worktree once, then keep it on top of base. Returns (path, note)."""
+    if not job.get("repo"):
+        return job["md"].parent, "no repo, runs in the job folder"
     wt, branch = HOME / "worktrees" / job["name"], f"reps/{job['name']}"
     repo = job["repo"]
     git(repo, "fetch", "--quiet")  # ok to fail: no remote, offline
@@ -109,7 +111,7 @@ def run(name):
     prompt = (
         f"You are running the scheduled job '{name}'. Read {job['md']} and do what it says.\n"
         f"Other files for this job are in {job['md'].parent}.\n"
-        f"You are in a git worktree on branch reps/{name}; it is kept between runs.\n"
+        + (f"You are in a git worktree on branch reps/{name}; it is kept between runs.\n" if job.get("repo") else "")
         + (f"Your summary from the last run is at {previous[-1]}.\n" if previous else "This is the first run.\n")
         + f"When done, write a short summary of what you did and what is left to {run_dir}/summary.md."
     )
@@ -167,26 +169,63 @@ def install():
         print(f"installed {label} every {job['every']}")
 
 
-def last_run(name):
-    runs = sorted((HOME / "runs" / name).glob("*/")) if (HOME / "runs" / name).exists() else []
-    return runs[-1] if runs else None
+def run_dirs(name):
+    d = HOME / "runs" / name
+    return sorted(p for p in d.iterdir() if p.is_dir()) if d.exists() else []
+
+
+def running(name):
+    lock = HOME / "locks" / f"{name}.lock"
+    if not lock.exists():
+        return False
+    with open(lock) as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return False
+        except BlockingIOError:
+            return True
+
+
+def status(run_dir, is_last_and_running=False):
+    meta = run_dir / "meta.json"
+    if not meta.exists():
+        return {"status": "running" if is_last_and_running else "crashed"}
+    m = json.loads(meta.read_text())
+    m["status"] = ("timeout" if m.get("timed_out") else "error" if m.get("error")
+                   else "ok" if m["exit_code"] == 0 else f"failed({m['exit_code']})")
+    return m
 
 
 def list_jobs():
+    print(f"{'JOB':20} {'EVERY':6} {'SCHEDULED':9} {'RUNS':>4} {'OK':>3} {'FAIL':>4}  LAST")
     for name in all_jobs():
-        job, last = load(name), last_run(name)
-        status = "never ran"
-        if last:
-            meta = last / "meta.json"
-            status = (f"last {last.name} exit {json.loads(meta.read_text())['exit_code']}"
-                      if meta.exists() else f"last {last.name} running")
-        print(f"{name:20} every {job.get('every', '-'):6} {status}")
+        job, runs = load(name), run_dirs(name)
+        stats = [status(r, i == len(runs) - 1 and running(name)) for i, r in enumerate(runs)]
+        ok = sum(st["status"] == "ok" for st in stats)
+        busy = sum(st["status"] == "running" for st in stats)
+        scheduled = (Path.home() / f"Library/LaunchAgents/dev.reps.{name}.plist").exists()
+        last = f"{runs[-1].name} {stats[-1]['status']}" if runs else "never ran"
+        print(f"{name:20} {job.get('every', '-'):6} {'yes' if scheduled else 'no':9} "
+              f"{len(runs):>4} {ok:>3} {len(runs) - ok - busy:>4}  {last}")
+
+
+def list_runs(name):
+    load(name)
+    runs = run_dirs(name)
+    if not runs:
+        sys.exit(f"{name}: no runs yet")
+    for i, r in enumerate(runs):
+        st = status(r, i == len(runs) - 1 and running(name))
+        took = f"{(st['ended'] - st['started']) / 60:.1f}m" if "ended" in st else "-"
+        moved = st.get("head_before") != st.get("head_after") and "head_after" in st
+        print(f"{r.name}  {st['status']:11} {took:>7}  {'new commits' if moved else '':11}  {st.get('sync') or st.get('error', '')}")
 
 
 def logs(name):
-    last = last_run(name)
-    if not last:
+    runs = run_dirs(name)
+    if not runs:
         sys.exit(f"{name}: no runs yet")
+    last = runs[-1]
     for f in ("meta.json", "summary.md", "output.log"):
         if (last / f).exists():
             print(f"==> {last / f}\n{(last / f).read_text()}")
@@ -208,5 +247,7 @@ if __name__ == "__main__":
         sys.exit(subprocess.run(["sh", str(HERE / "install.sh")]).returncode)
     elif cmd == "list":
         list_jobs()
+    elif cmd == "runs" and rest:
+        list_runs(rest[0])
     else:
         sys.exit(__doc__)

@@ -23,7 +23,7 @@ Run it again, or `reps update`, to update. Then just ask your agent to schedule 
 
 ```markdown
 ---
-repo: ~/dev/myrepo
+repo: ~/dev/myrepo           # optional; without it the agent runs in the job folder
 every: 6h                    # 30m, 6h, 1d. Leave out to only run by hand
 agent: codex exec -s workspace-write
 timeout: 45m                 # default 1h; kills the agent and its children
@@ -41,7 +41,8 @@ Some agent flags take many values (`claude --allowedTools a b`) and would swallo
 ```sh
 reps run <job>     # run now (skips if already running)
 reps install       # sync launchd with ~/.reps/jobs (adds, updates, removes)
-reps list          # jobs and their last result
+reps list          # jobs: schedule, runs, ok/failed, last status
+reps runs <job>    # every run: status, duration, new commits
 reps logs <job>    # last run: meta, summary, output
 reps version       # installed commit; reps update to update
 python3 test_reps.py    # end-to-end self-check with a fake agent

@@ -48,9 +48,17 @@ assert "error" in json.loads(next((home / "runs" / "broken").glob("*/meta.json")
 (jobs / "demo" / "JOB.md").write_text(f"---\nrepo: {repo}\nagent: no-such-agent-xyz\n# every: 1h\n---\n")
 assert reps("run", "demo").returncode != 0
 assert "error" in last_meta()
-demo_line = next(l for l in reps("list").stdout.splitlines() if l.startswith("demo"))
-assert "every -" in demo_line, demo_line  # commented-out "# every" is ignored
-assert "exit -1" in demo_line, demo_line  # missing agent is recorded, not stuck "running"
+demo_line = next(l for l in reps("list").stdout.splitlines() if l.startswith("demo")).split()
+assert demo_line[1] == "-", demo_line  # commented-out "# every" is ignored
+assert demo_line[-1] == "error", demo_line  # missing agent is recorded, not stuck "running"
 
-assert "demo" in reps("list").stdout
+(jobs / "norepo").mkdir()
+(jobs / "norepo" / "JOB.md").write_text("---\nagent: sh -c 'pwd > out'\n---\n")
+assert reps("run", "norepo").returncode == 0
+assert (jobs / "norepo" / "out").read_text().strip().endswith("norepo")  # ran in the job folder
+
+listing = {l.split()[0]: l.split() for l in reps("list").stdout.splitlines()[1:]}
+assert listing["demo"][3:6] == ["5", "3", "2"], listing["demo"]  # runs, ok, failed (timeout + missing agent)
+runs_out = reps("runs", "demo").stdout
+assert "timeout" in runs_out and "new commits" in runs_out, runs_out
 print("ok")
