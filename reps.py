@@ -14,13 +14,14 @@ A job is a folder ~/.reps/jobs/<name>/ with a JOB.md:
 
 Usage: reps run <job> | install | list | runs <job> | logs <job> | version | update
 """
-import fcntl, json, os, plistlib, re, shlex, signal, subprocess, sys, time
+import fcntl, json, os, plistlib, re, shlex, shutil, signal, subprocess, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 HOME = Path(os.environ.get("REPS_HOME", Path.home() / ".reps"))
 JOBS = Path(os.environ.get("REPS_JOBS", HOME / "jobs"))
 UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+KEEP_RUNS = 200  # per job; an hourly job keeps about 8 days
 
 
 def seconds(text):
@@ -95,6 +96,8 @@ def run(name):
         return 0
 
     runs = HOME / "runs" / name
+    for old in run_dirs(name)[:-KEEP_RUNS]:
+        shutil.rmtree(old, ignore_errors=True)
     previous = sorted(runs.glob("*/summary.md")) if runs.exists() else []
     now = time.time()
     run_dir = runs / (time.strftime("%Y%m%d-%H%M%S", time.localtime(now)) + f".{int(now * 1000) % 1000:03d}")
@@ -192,7 +195,9 @@ def status(run_dir, is_last_and_running=False):
         return {"status": "running" if is_last_and_running else "crashed"}
     m = json.loads(meta.read_text())
     m["status"] = ("timeout" if m.get("timed_out") else "error" if m.get("error")
-                   else "ok" if m["exit_code"] == 0 else f"failed({m['exit_code']})")
+                   else "ok" if m["exit_code"] == 0
+                   else "killed" if m["exit_code"] in (-9, -15, 137, 143)  # stopped from outside
+                   else f"failed({m['exit_code']})")
     return m
 
 
@@ -228,7 +233,30 @@ def logs(name):
     last = runs[-1]
     for f in ("meta.json", "summary.md", "output.log"):
         if (last / f).exists():
-            print(f"==> {last / f}\n{(last / f).read_text()}")
+            print(f"==> {last / f}")
+            for line in (last / f).read_text().splitlines():
+                print(readable(line) if f == "output.log" else line, end="")
+
+
+def readable(line):
+    """Turn one stream-json event (claude --output-format stream-json) into text; other lines pass through."""
+    try:
+        ev = json.loads(line)
+    except ValueError:
+        return line + "\n"
+    if not isinstance(ev, dict):
+        return line + "\n"
+    if ev.get("type") == "result":
+        return f"\n[result] {ev.get('result', '')}\n"
+    if ev.get("type") != "assistant":
+        return ""  # hooks, tool results, system noise
+    out = ""
+    for c in ev.get("message", {}).get("content", []):
+        if c.get("type") == "text":
+            out += c["text"] + "\n"
+        elif c.get("type") == "tool_use":
+            out += f"  > {c['name']} {json.dumps(c.get('input', {}))[:200]}\n"
+    return out
 
 
 if __name__ == "__main__":

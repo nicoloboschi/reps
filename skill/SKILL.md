@@ -27,7 +27,7 @@ Write `~/.reps/jobs/<name>/JOB.md` (name: lowercase, dashes). Settings on top, i
 ```markdown
 ---
 repo: ~/dev/myrepo           # optional: the repo to work on (see below)
-agent: claude -p --permission-mode acceptEdits --allowedTools=Read,Edit,Write,Bash(git:*)
+agent: claude -p --output-format stream-json --verbose --permission-mode acceptEdits --allowedTools=Read,Edit,Write,Bash(git:*)
 every: 6h                    # 30m, 6h, 1d — leave out for manual-only
 timeout: 45m                 # optional, default 1h
 base: origin/main            # optional, default origin/HEAD or the repo's current branch
@@ -50,10 +50,13 @@ It runs with no terminal and no stdin, and the prompt is added as the last argum
 
 | Agent | `agent:` |
 |---|---|
-| Claude Code | `claude -p --permission-mode acceptEdits --allowedTools=Read,Edit,Write,Bash(git:*),Bash(npm test:*)` |
+| Claude Code | `claude -p --output-format stream-json --verbose --permission-mode acceptEdits --allowedTools=Read,Edit,Write,Bash(git:*),Bash(npm test:*)` |
 | Codex | `codex exec -s workspace-write` (add `-m <model>` if the configured one fails) |
 | Gemini CLI | `gemini --yolo -p` (untested) |
 | opencode | `opencode run` |
+
+For Claude keep `--output-format stream-json --verbose`: the log then fills in as the agent works, so a stuck or
+killed run still shows what it did (`reps logs` turns it into readable text).
 
 Use the agent the user asked for; default to the one you are. Flags that take a list must use `=` (`--allowedTools=a,b`), or they swallow the prompt.
 
@@ -79,5 +82,9 @@ To change a schedule, edit `every:` and run `reps install` again. To remove a jo
 
 - `meta.json` `sync` says what happened to the worktree: `created`, `rebased`, or why it was left alone
   (uncommitted changes, rebase conflict). Fix those in `~/.reps/worktrees/<job>` if a job is stuck.
+- Scheduled runs get the PATH of the shell that ran `reps install`. If a job needs a tool (docker, cargo, …),
+  check `command -v <tool>` works there before installing.
+- Status in `reps list` / `reps runs`: `ok`, `failed(code)`, `timeout`, `killed` (stopped from outside), `error`
+  (agent or worktree couldn't start), `running`, `crashed` (reps itself died). The newest 200 runs per job are kept.
 - A run is skipped if the previous one is still going. Missed runs while the Mac slept fire once on wake.
 - Only macOS scheduling is supported. On Linux, `reps run <name>` works; schedule it with cron yourself.

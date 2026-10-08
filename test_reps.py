@@ -61,4 +61,22 @@ listing = {l.split()[0]: l.split() for l in reps("list").stdout.splitlines()[1:]
 assert listing["demo"][3:6] == ["5", "3", "2"], listing["demo"]  # runs, ok, failed (timeout + missing agent)
 runs_out = reps("runs", "demo").stdout
 assert "timeout" in runs_out and "new commits" in runs_out, runs_out
+(jobs / "k").mkdir()
+(jobs / "k" / "JOB.md").write_text("---\nagent: sh -c 'kill -TERM $$'\n---\n")
+reps("run", "k")
+assert "killed" in reps("runs", "k").stdout  # stopped from outside, not a plain failure
+
+event = json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "cleaning up"},
+                    {"type": "tool_use", "name": "Bash", "input": {"command": "df -h"}}]}})
+(jobs / "k" / "ev.json").write_text(event + "\n" + json.dumps({"type": "system", "subtype": "hook"}) + "\n")
+(jobs / "k" / "JOB.md").write_text("---\nagent: sh -c 'cat ev.json'\n---\n")
+reps("run", "k")
+log = reps("logs", "k").stdout
+assert "cleaning up" in log and '> Bash {"command": "df -h"}' in log and "hook" not in log, log
+
+for i in range(205):  # old runs are pruned to the newest 200 (+ the new one)
+    (home / "runs" / "k" / f"00000000-{i:06d}.000").mkdir()
+reps("run", "k")
+assert len(list((home / "runs" / "k").iterdir())) == 201
+
 print("ok")
