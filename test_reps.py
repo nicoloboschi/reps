@@ -90,6 +90,7 @@ assert (d["runs"], d["ok"], d["failed"]) == (5, 3, 2), d
 assert d["worktree"] == str(wt) and d["repo"] == str(repo) and d["last"]["status"] == "error", d
 assert jobs_json["norepo"]["worktree"] is None and jobs_json["norepo"]["prompt"] == ""
 runs_json = json.loads(reps("runs", "demo", "--json").stdout)
+assert d["history"] == runs_json, (d["history"], runs_json)  # list carries the same runs
 assert [r["status"] for r in runs_json][:2] == ["ok", "ok"] and runs_json[0]["new_commits"], runs_json
 first_id = runs_json[0]["id"]
 one = json.loads(reps("logs", "demo", "--run", first_id, "--json").stdout)

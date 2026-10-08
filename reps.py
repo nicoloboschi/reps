@@ -223,6 +223,7 @@ def job_json(name):
         "running": running(name),
         "runs": len(runs), "ok": ok, "failed": len(runs) - ok - busy,
         "last": run_json(runs[-1], stats[-1]) if runs else None,
+        "history": [run_json(r, st) for r, st in zip(runs, stats)],  # already computed; saves a `runs` call
     }
 
 
