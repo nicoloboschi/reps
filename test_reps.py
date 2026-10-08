@@ -80,4 +80,20 @@ for i in range(205):  # old runs are pruned to the newest 200 (+ the new one)
 reps("run", "k")
 assert len(list((home / "runs" / "k").iterdir())) == 201
 
+# --json: the same facts, for other tools (sheepit reads these)
+(jobs / "bad").mkdir()
+(jobs / "bad" / "JOB.md").write_text("no frontmatter\n")
+jobs_json = {j["name"]: j for j in json.loads(reps("list", "--json").stdout)}
+assert "error" in jobs_json["bad"], jobs_json["bad"]  # one broken job doesn't break the list
+d = jobs_json["demo"]
+assert (d["runs"], d["ok"], d["failed"]) == (5, 3, 2), d
+assert d["worktree"] == str(wt) and d["repo"] == str(repo) and d["last"]["status"] == "error", d
+assert jobs_json["norepo"]["worktree"] is None and jobs_json["norepo"]["prompt"] == ""
+runs_json = json.loads(reps("runs", "demo", "--json").stdout)
+assert [r["status"] for r in runs_json][:2] == ["ok", "ok"] and runs_json[0]["new_commits"], runs_json
+first_id = runs_json[0]["id"]
+one = json.loads(reps("logs", "demo", "--run", first_id, "--json").stdout)
+assert one["id"] == first_id and one["summary"].strip() == "ok" and one["output"].strip() == "0", one
+assert "cleaning up" in json.loads(reps("logs", "k", "--json").stdout)["output"]
+
 print("ok")

@@ -12,7 +12,8 @@ A job is a folder ~/.reps/jobs/<name>/ with a JOB.md:
     ---
     What the agent should do, in plain markdown.
 
-Usage: reps run <job> | install | list | runs <job> | logs <job> | version | update
+Usage: reps run <job> | install | list | runs <job> | logs <job> [--run <id>] | version | update
+       list, runs and logs take --json for scripts and other tools.
 """
 import fcntl, json, os, plistlib, re, shlex, shutil, signal, subprocess, sys, time
 from pathlib import Path
@@ -201,6 +202,39 @@ def status(run_dir, is_last_and_running=False):
     return m
 
 
+def job_json(name):
+    """One job as data: its settings, where it lives, and how its runs went."""
+    try:
+        job = load(name)
+    except SystemExit as e:  # a broken JOB.md is reported, not fatal to the whole list
+        return {"name": name, "dir": str(JOBS / name), "error": str(e)}
+    runs = run_dirs(name)
+    stats = [status(r, i == len(runs) - 1 and running(name)) for i, r in enumerate(runs)]
+    ok = sum(st["status"] == "ok" for st in stats)
+    busy = sum(st["status"] == "running" for st in stats)
+    wt = HOME / "worktrees" / name
+    body = job["md"].read_text().split("\n---\n", 1)[-1].strip()
+    return {
+        "name": name, "dir": str(job["md"].parent), "md": str(job["md"]), "prompt": body,
+        **{k: job.get(k) for k in ("every", "agent", "timeout", "base")},
+        "repo": str(job["repo"]) if job.get("repo") else None,
+        "worktree": str(wt) if job.get("repo") and wt.exists() else None,
+        "scheduled": (Path.home() / f"Library/LaunchAgents/dev.reps.{name}.plist").exists(),
+        "running": running(name),
+        "runs": len(runs), "ok": ok, "failed": len(runs) - ok - busy,
+        "last": run_json(runs[-1], stats[-1]) if runs else None,
+    }
+
+
+def run_json(run_dir, st):
+    return {
+        "id": run_dir.name, "dir": str(run_dir), "status": st["status"],
+        **{k: st.get(k) for k in ("started", "ended", "exit_code", "sync", "error", "worktree")},
+        "new_commits": "head_after" in st and st.get("head_before") != st.get("head_after"),
+        "summary": (run_dir / "summary.md").exists(),
+    }
+
+
 def list_jobs():
     print(f"{'JOB':20} {'EVERY':6} {'SCHEDULED':9} {'RUNS':>4} {'OK':>3} {'FAIL':>4}  LAST")
     for name in all_jobs():
@@ -226,11 +260,20 @@ def list_runs(name):
         print(f"{r.name}  {st['status']:11} {took:>7}  {'new commits' if moved else '':11}  {st.get('sync') or st.get('error', '')}")
 
 
-def logs(name):
+def logs(name, run_id=None, as_json=False):
     runs = run_dirs(name)
     if not runs:
         sys.exit(f"{name}: no runs yet")
-    last = runs[-1]
+    last = next((r for r in runs if r.name == run_id), None) if run_id else runs[-1]
+    if not last:
+        sys.exit(f"{name}: no run {run_id}")
+    if as_json:
+        read = lambda f: (last / f).read_text(errors="replace") if (last / f).exists() else None
+        output = read("output.log")
+        st = status(last, last == runs[-1] and running(name))
+        print(json.dumps({**run_json(last, st), "meta": st, "summary": read("summary.md"),
+                          "output": "".join(map(readable, output.splitlines())) if output is not None else None}))
+        return
     for f in ("meta.json", "summary.md", "output.log"):
         if (last / f).exists():
             print(f"==> {last / f}")
@@ -260,11 +303,19 @@ def readable(line):
 
 
 if __name__ == "__main__":
-    cmd, *rest = sys.argv[1:] or ["help"]
+    args = sys.argv[1:]
+    as_json = "--json" in args
+    args = [a for a in args if a != "--json"]
+    run_id = None
+    if "--run" in args:
+        i = args.index("--run")
+        run_id = args[i + 1] if i + 1 < len(args) else sys.exit("--run needs a run id")
+        del args[i:i + 2]
+    cmd, *rest = args or ["help"]
     if cmd == "run" and rest:
         sys.exit(run(rest[0]))
     elif cmd == "logs" and rest:
-        logs(rest[0])
+        logs(rest[0], run_id, as_json)
     elif cmd == "install":
         install()
     elif cmd == "version":
@@ -274,8 +325,14 @@ if __name__ == "__main__":
         subprocess.run(["git", "-C", str(HERE), "pull", "--ff-only", "--quiet"], check=True)
         sys.exit(subprocess.run(["sh", str(HERE / "install.sh")]).returncode)
     elif cmd == "list":
-        list_jobs()
+        print(json.dumps([job_json(n) for n in all_jobs()])) if as_json else list_jobs()
     elif cmd == "runs" and rest:
-        list_runs(rest[0])
+        if as_json:
+            load(rest[0])
+            runs = run_dirs(rest[0])
+            print(json.dumps([run_json(r, status(r, i == len(runs) - 1 and running(rest[0])))
+                              for i, r in enumerate(runs)]))
+        else:
+            list_runs(rest[0])
     else:
         sys.exit(__doc__)

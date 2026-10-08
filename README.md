@@ -43,10 +43,12 @@ reps run <job>     # run now (skips if already running)
 reps install       # sync launchd with ~/.reps/jobs (adds, updates, removes)
 reps list          # jobs: schedule, runs, ok/failed, last status
 reps runs <job>    # every run: status, duration, new commits
-reps logs <job>    # last run: meta, summary, output
+reps logs <job>    # last run: meta, summary, output (--run <id> for an older one)
 reps version       # installed commit; reps update to update
 python3 test_reps.py    # end-to-end self-check with a fake agent
 ```
+
+`list`, `runs` and `logs` take `--json`, for scripts and other tools (sheepit's reps panel reads these).
 
 `REPS_HOME` (default `~/.reps`) and `REPS_JOBS` (default `~/.reps/jobs`) override the paths.
 
