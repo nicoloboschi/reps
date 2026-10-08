@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """reps: run coding agents on a schedule, each job in its own stable git worktree.
 
-A job is a folder jobs/<name>/ with a JOB.md:
+A job is a folder ~/.reps/jobs/<name>/ with a JOB.md:
 
     ---
     repo: ~/dev/myrepo
@@ -12,14 +12,14 @@ A job is a folder jobs/<name>/ with a JOB.md:
     ---
     What the agent should do, in plain markdown.
 
-Usage: reps.py run <job> | install | list | logs <job>
+Usage: reps run <job> | install | list | logs <job> | version | update
 """
 import fcntl, json, os, plistlib, re, shlex, signal, subprocess, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-JOBS = Path(os.environ.get("REPS_JOBS", HERE / "jobs"))
 HOME = Path(os.environ.get("REPS_HOME", Path.home() / ".reps"))
+JOBS = Path(os.environ.get("REPS_JOBS", HOME / "jobs"))
 UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 
 
@@ -40,7 +40,7 @@ def load(name):
     job = {"name": name, "md": md}
     for line in m[1].splitlines():
         line = line.split(" #")[0].strip()
-        if line:
+        if line and not line.startswith("#"):
             k, _, v = line.partition(":")
             job[k.strip()] = v.strip()
     for k in ("repo", "agent"):
@@ -117,13 +117,18 @@ def run(name):
     meta.update(worktree=str(wt), head_before=git(wt, "rev-parse", "HEAD").stdout.strip())
     with open(run_dir / "output.log", "w") as out:
         # own process group so a timeout kills the agent's children too
-        p = subprocess.Popen(shlex.split(job["agent"]) + [prompt], cwd=wt, env=env, stdin=subprocess.DEVNULL,
-                             stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         try:
-            meta["exit_code"] = p.wait(timeout=seconds(job.get("timeout", "1h")))
-        except subprocess.TimeoutExpired:
-            os.killpg(p.pid, signal.SIGKILL)
-            meta["exit_code"], meta["timed_out"] = p.wait(), True
+            p = subprocess.Popen(shlex.split(job["agent"]) + [prompt], cwd=wt, env=env, stdin=subprocess.DEVNULL,
+                                 stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        except OSError as e:  # agent not on PATH etc.: record it, don't leave the run looking "running"
+            p, meta["exit_code"], meta["error"] = None, -1, str(e)
+            print(e, file=out)
+        if p:
+            try:
+                meta["exit_code"] = p.wait(timeout=seconds(job.get("timeout", "1h")))
+            except subprocess.TimeoutExpired:
+                os.killpg(p.pid, signal.SIGKILL)
+                meta["exit_code"], meta["timed_out"] = p.wait(), True
     meta["ended"] = time.time()
     meta["head_after"] = git(wt, "rev-parse", "HEAD").stdout.strip()
     (run_dir / "meta.json").write_text(json.dumps(meta, indent=2))
@@ -195,6 +200,12 @@ if __name__ == "__main__":
         logs(rest[0])
     elif cmd == "install":
         install()
+    elif cmd == "version":
+        print(git(HERE, "rev-parse", "--short", "HEAD").stdout.strip() or "unknown")
+    elif cmd == "update":
+        # pull first so the shell never reads install.sh while git rewrites it
+        subprocess.run(["git", "-C", str(HERE), "pull", "--ff-only", "--quiet"], check=True)
+        sys.exit(subprocess.run(["sh", str(HERE / "install.sh")]).returncode)
     elif cmd == "list":
         list_jobs()
     else:

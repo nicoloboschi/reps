@@ -45,5 +45,12 @@ assert last_meta().get("timed_out")
 assert reps("run", "broken").returncode == 1
 assert "error" in json.loads(next((home / "runs" / "broken").glob("*/meta.json")).read_text())
 
+(jobs / "demo" / "JOB.md").write_text(f"---\nrepo: {repo}\nagent: no-such-agent-xyz\n# every: 1h\n---\n")
+assert reps("run", "demo").returncode != 0
+assert "error" in last_meta()
+demo_line = next(l for l in reps("list").stdout.splitlines() if l.startswith("demo"))
+assert "every -" in demo_line, demo_line  # commented-out "# every" is ignored
+assert "exit -1" in demo_line, demo_line  # missing agent is recorded, not stuck "running"
+
 assert "demo" in reps("list").stdout
 print("ok")
