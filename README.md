@@ -68,3 +68,7 @@ macOS only for scheduling (on Linux, `reps run` works; call it from cron).
 reps never pushes or opens PRs itself; say so in the job if you want it.
 
 Tests: `python3 test_reps.py` runs everything end to end with a fake agent.
+
+## License
+
+MIT
