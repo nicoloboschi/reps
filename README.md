@@ -1,12 +1,10 @@
 # reps
 
-Your coding agent, on a schedule, on your own machine.
+![reps: your coding agent, on a schedule](hero.png)
 
 Tell Claude Code, Codex or any agent *"every 6 hours, triage new issues and fix the easy ones"*.
 reps gives that job its own git worktree, runs the agent headless on time, and keeps a record of every run.
 No server, no cloud, no daemon. One Python file and macOS's own scheduler.
-
-![How reps works](how-it-works.png)
 
 ## Install
 
@@ -20,7 +18,9 @@ It writes the job, does a test run, shows you the result, and schedules it.
 
 Run the same line again, or `reps update`, to update. Needs macOS, git and Python 3.9+.
 
-## What you get
+## How it works
+
+![How reps works](how-it-works.png)
 
 - **Any agent.** The job says which command to run: `claude -p`, `codex exec`, `gemini -p`, `opencode run`, or anything else with a headless mode.
 - **A stable worktree per job.** `~/.reps/worktrees/<job>` on branch `reps/<job>`, kept between runs and rebased on main before each one. If the last run left uncommitted work or the rebase conflicts, reps leaves it alone and says so. Your own checkout is never touched.
