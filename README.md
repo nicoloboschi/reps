@@ -1,55 +1,70 @@
 # reps
 
-Run coding agents (Claude Code, Codex, anything with a headless mode) on a schedule, on your own machine.
+Your coding agent, on a schedule, on your own machine.
 
-- A **job** is a folder `~/.reps/jobs/<name>/` with a `JOB.md`: settings on top, instructions below. Put helper files next to it.
-- Each job gets **one stable git worktree** (`~/.reps/worktrees/<name>`, branch `reps/<name>`). reps creates it and rebases it on the base branch before every run. If the last run left uncommitted changes or the rebase conflicts, it leaves the worktree alone and notes why.
-- Every run is **recorded outside the repo** in `~/.reps/runs/<name>/<time>/`: `output.log`, `meta.json`, and a `summary.md` the agent writes. The next run is pointed at the last summary, so the agent remembers what it did.
-- **Scheduling** is done by macOS launchd. No daemon. Runs missed while the laptop slept fire once on wake.
+Tell Claude Code, Codex or any agent *"every 6 hours, triage new issues and fix the easy ones"*.
+reps gives that job its own git worktree, runs the agent headless on time, and keeps a record of every run.
+No server, no cloud, no daemon. One Python file and macOS's own scheduler.
 
-Python 3.9+, standard library only.
+![How reps works](how-it-works.png)
 
-## Install / update
+## Install
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/nicoloboschi/reps/main/install.sh | sh
 ```
 
-Clones to `~/.reps/app`, links `reps` into `~/.local/bin`, and copies the agent skill into each of
-`~/.claude/skills`, `~/.codex/skills`, `~/.agents/skills`, `~/.gemini/skills` that exists.
-Run it again, or `reps update`, to update. Then just ask your agent to schedule something.
+This puts `reps` in `~/.local/bin` and installs a skill for every agent it finds
+(`~/.claude`, `~/.codex`, `~/.agents`, `~/.gemini`). Then just ask your agent to schedule something.
+It writes the job, does a test run, shows you the result, and schedules it.
 
-## Job file
+Run the same line again, or `reps update`, to update. Needs macOS, git and Python 3.9+.
+
+## What you get
+
+- **Any agent.** The job says which command to run: `claude -p`, `codex exec`, `gemini -p`, `opencode run`, or anything else with a headless mode.
+- **A stable worktree per job.** `~/.reps/worktrees/<job>` on branch `reps/<job>`, kept between runs and rebased on main before each one. If the last run left uncommitted work or the rebase conflicts, reps leaves it alone and says so. Your own checkout is never touched.
+- **Memory between runs.** Each run is pointed at the last run's summary, so the agent picks up where it left off.
+- **Runs recorded outside the repo.** `~/.reps/runs/<job>/<time>/` holds the output, a summary the agent writes, and the status.
+- **Safe to leave alone.** One run at a time per job, a time limit that kills the agent and everything it started, and runs missed while the Mac slept fire once on wake.
+- **Jobs without a repo.** Leave out `repo:` and the agent runs in the job's folder: disk cleanup, reports, checks.
+
+## A job
+
+A job is a folder `~/.reps/jobs/<name>/` with a `JOB.md`. Your agent usually writes it for you.
 
 ```markdown
 ---
-repo: ~/dev/myrepo           # optional; without it the agent runs in the job folder
-every: 6h                    # 30m, 6h, 1d. Leave out to only run by hand
-agent: codex exec -s workspace-write
-timeout: 45m                 # default 1h; kills the agent and its children
+repo: ~/dev/shop             # optional
+every: 6h                    # 30m, 6h, 1d. Leave out to run only by hand
+agent: claude -p --output-format stream-json --verbose --permission-mode acceptEdits --allowedTools=Read,Edit,Bash(git:*)
+timeout: 45m                 # default 1h
 base: origin/main            # default: origin/HEAD, else the repo's current branch
 ---
-What the agent should do.
+Triage issues opened since your last run. Fix the easy ones, one commit each.
+Don't push. List the rest in your summary.
 ```
 
-The agent command gets the prompt as its last argument and no stdin. It also sees `REPS_JOB`, `REPS_JOB_DIR`, `REPS_RUN_DIR`.
-
-Some agent flags take many values (`claude --allowedTools a b`) and would swallow the prompt: write them as `--allowedTools=a,b`.
+The agent gets the prompt as its last argument and no stdin, so it must not wait for approval.
+Write list flags with `=` (`--allowedTools=a,b`), or they swallow the prompt.
 
 ## Commands
 
 ```sh
-reps run <job>     # run now (skips if already running)
-reps install       # sync launchd with ~/.reps/jobs (adds, updates, removes)
-reps list          # jobs: schedule, runs, ok/failed, last status
-reps runs <job>    # every run: status, duration, new commits
-reps logs <job>    # last run: meta, summary, output (--run <id> for an older one)
-reps version       # installed commit; reps update to update
-python3 test_reps.py    # end-to-end self-check with a fake agent
+reps run <job>      # run now (skipped if it is already running)
+reps install        # schedule every job with `every:`; removes deleted jobs
+reps list           # every job: schedule, runs, ok/failed, last status
+reps runs <job>     # every run: status, duration, new commits
+reps logs <job>     # last run: status, summary, what the agent did (--run <id> for an older one)
+reps update         # update reps and the skill
 ```
 
-`list`, `runs` and `logs` take `--json`, for scripts and other tools (sheepit's reps panel reads these).
+`list`, `runs` and `logs` take `--json` for scripts. `REPS_HOME` (default `~/.reps`) and `REPS_JOBS`
+(default `~/.reps/jobs`) move things elsewhere.
 
-`REPS_HOME` (default `~/.reps`) and `REPS_JOBS` (default `~/.reps/jobs`) override the paths.
+## Limits
 
-Not done yet: Linux scheduling. reps never pushes; say so in the job file if you want it.
+macOS only for scheduling (on Linux, `reps run` works; call it from cron).
+reps never pushes or opens PRs itself; say so in the job if you want it.
+
+Tests: `python3 test_reps.py` runs everything end to end with a fake agent.

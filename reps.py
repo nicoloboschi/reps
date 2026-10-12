@@ -159,7 +159,7 @@ def install():
     (HOME / "launchd").mkdir(parents=True, exist_ok=True)
     for label, job in wanted.items():
         plist = agents / f"{label}.plist"
-        plist.write_bytes(plistlib.dumps({
+        data = plistlib.dumps({
             "Label": label,
             "ProgramArguments": [sys.executable, str(Path(__file__).resolve()), "run", job["name"]],
             "StartInterval": seconds(job["every"]),
@@ -167,7 +167,12 @@ def install():
             "EnvironmentVariables": {"PATH": os.environ["PATH"], "REPS_HOME": str(HOME), "REPS_JOBS": str(JOBS)},
             "StandardOutPath": str(HOME / "launchd" / f"{job['name']}.log"),
             "StandardErrorPath": str(HOME / "launchd" / f"{job['name']}.log"),
-        }))
+        })
+        loaded = subprocess.run(["launchctl", "print", f"{domain}/{label}"], capture_output=True).returncode == 0
+        if loaded and plist.exists() and plist.read_bytes() == data:
+            print(f"{label} unchanged")  # reloading would restart its countdown
+            continue
+        plist.write_bytes(data)
         subprocess.run(["launchctl", "bootout", f"{domain}/{label}"], capture_output=True)
         subprocess.run(["launchctl", "bootstrap", domain, str(plist)], check=True)
         print(f"installed {label} every {job['every']}")
@@ -238,27 +243,30 @@ def run_json(run_dir, st):
 
 def list_jobs():
     print(f"{'JOB':20} {'EVERY':6} {'SCHEDULED':9} {'RUNS':>4} {'OK':>3} {'FAIL':>4}  LAST")
-    for name in all_jobs():
-        job, runs = load(name), run_dirs(name)
-        stats = [status(r, i == len(runs) - 1 and running(name)) for i, r in enumerate(runs)]
-        ok = sum(st["status"] == "ok" for st in stats)
-        busy = sum(st["status"] == "running" for st in stats)
-        scheduled = (Path.home() / f"Library/LaunchAgents/dev.reps.{name}.plist").exists()
-        last = f"{runs[-1].name} {stats[-1]['status']}" if runs else "never ran"
-        print(f"{name:20} {job.get('every', '-'):6} {'yes' if scheduled else 'no':9} "
-              f"{len(runs):>4} {ok:>3} {len(runs) - ok - busy:>4}  {last}")
+    for j in map(job_json, all_jobs()):
+        if "error" in j:
+            print(f"{j['name']:20} {j['error']}")
+            continue
+        last = f"{j['last']['id']} {j['last']['status']}" if j["last"] else "never ran"
+        print(f"{j['name']:20} {j['every'] or '-':6} {'yes' if j['scheduled'] else 'no':9} "
+              f"{j['runs']:>4} {j['ok']:>3} {j['failed']:>4}  {last}")
+
+
+def history(name):
+    j = job_json(name)
+    if "error" in j:
+        sys.exit(j["error"])
+    return j["history"]
 
 
 def list_runs(name):
-    load(name)
-    runs = run_dirs(name)
+    runs = history(name)
     if not runs:
         sys.exit(f"{name}: no runs yet")
-    for i, r in enumerate(runs):
-        st = status(r, i == len(runs) - 1 and running(name))
-        took = f"{(st['ended'] - st['started']) / 60:.1f}m" if "ended" in st else "-"
-        moved = st.get("head_before") != st.get("head_after") and "head_after" in st
-        print(f"{r.name}  {st['status']:11} {took:>7}  {'new commits' if moved else '':11}  {st.get('sync') or st.get('error', '')}")
+    for r in runs:
+        took = f"{(r['ended'] - r['started']) / 60:.1f}m" if r["ended"] else "-"
+        print(f"{r['id']}  {r['status']:11} {took:>7}  {'new commits' if r['new_commits'] else '':11}  "
+              f"{r['sync'] or r['error'] or ''}")
 
 
 def logs(name, run_id=None, as_json=False):
@@ -328,12 +336,6 @@ if __name__ == "__main__":
     elif cmd == "list":
         print(json.dumps([job_json(n) for n in all_jobs()])) if as_json else list_jobs()
     elif cmd == "runs" and rest:
-        if as_json:
-            load(rest[0])
-            runs = run_dirs(rest[0])
-            print(json.dumps([run_json(r, status(r, i == len(runs) - 1 and running(rest[0])))
-                              for i, r in enumerate(runs)]))
-        else:
-            list_runs(rest[0])
+        print(json.dumps(history(rest[0]))) if as_json else list_runs(rest[0])
     else:
         sys.exit(__doc__)
